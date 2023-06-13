@@ -16,7 +16,7 @@ name: Build
 on:
   # Trigger the workflow on pushes to only the 'main' branch (this avoids duplicate checks being run e.g. for dependabot pull requests)
   push:
-    branches: [main]
+    branches: [ main ]
   # Trigger the workflow on any pull request
   pull_request:
 
@@ -29,6 +29,7 @@ jobs:
     outputs:
       version: ${{ steps.properties.outputs.version }}
       changelog: ${{ steps.properties.outputs.changelog }}
+      pluginVerifierHomeDir: ${{ steps.properties.outputs.pluginVerifierHomeDir }}
     steps:
 
       # Free GitHub Actions Environment Disk Space
@@ -46,13 +47,9 @@ jobs:
       - name: Gradle Wrapper Validation
         uses: gradle/wrapper-validation-action@v1.0.6
 
-      # Setup Java environment for the next steps
-      - name: Setup Java
-        uses: actions/setup-java@v3
-        with:
-          distribution: zulu
-          java-version: 17
-          cache: gradle
+      # Setup Gradle
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
 
       # Set environment variables
       - name: Export Properties
@@ -73,13 +70,6 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
           ./gradlew listProductsReleases # prepare list of IDEs for Plugin Verifier
-
-  # Upload built plugin as a workflow artifact
-  prepareArtifact:
-    name: Prepare artifact
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
 
       # Prepare plugin archive content for creating artifact
       - name: Prepare Plugin Artifact
@@ -106,6 +96,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
+      # Check out current repository
+      - name: Fetch Sources
+        uses: actions/checkout@v3
+
+      # Setup Gradle
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+
       # Run tests
       - name: Run Tests
         run: ./gradlew check
@@ -127,20 +125,28 @@ jobs:
   # Run plugin structure verification along with IntelliJ Plugin Verifier
   verify:
     name: Verify
-    needs: test
+    needs: [build, test]
     runs-on: ubuntu-latest
     steps:
+
+      # Check out current repository
+      - name: Fetch Sources
+        uses: actions/checkout@v3
+
+      # Setup Gradle
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
 
       # Cache Plugin Verifier IDEs
       - name: Setup Plugin Verifier IDEs Cache
         uses: actions/cache@v3
         with:
-          path: ${{ steps.properties.outputs.pluginVerifierHomeDir }}/ides
+          path: ${{ needs.build.outputs.changelog }}/ides
           key: plugin-verifier-${{ hashFiles('build/listProductsReleases.txt') }}
 
       # Run Verify Plugin task and IntelliJ Plugin Verifier tool
       - name: Run Plugin Verification tasks
-        run: ./gradlew runPluginVerifier -Dplugin.verifier.home.dir=${{ steps.properties.outputs.pluginVerifierHomeDir }}
+        run: ./gradlew runPluginVerifier -Dplugin.verifier.home.dir=${{ needs.build.outputs.changelog }}
 
       # Collect Plugin Verifier Result
       - name: Collect Plugin Verifier Result
@@ -157,6 +163,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
+      # Check out current repository
+      - name: Fetch Sources
+        uses: actions/checkout@v3
+
       # Run Qodana inspections
       - name: Qodana - Code Inspection
         uses: JetBrains/qodana-action@v2023.1.4
@@ -166,15 +176,11 @@ jobs:
   releaseDraft:
     name: Release Draft
     if: github.event_name != 'pull_request'
-    needs: [build, test, verify, inspectCode]
+    needs: [ build, test, verify, inspectCode ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-
-      # Check out current repository
-      - name: Fetch Sources
-        uses: actions/checkout@v3
 
       # Remove old release drafts by using the curl request for the available releases with a draft flag
       - name: Remove Old Release Drafts
