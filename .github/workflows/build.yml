@@ -22,9 +22,7 @@ on:
 
 jobs:
 
-  # Run Gradle Wrapper Validation Action to verify the wrapper's checksum
-  # Run verifyPlugin, IntelliJ Plugin Verifier, and test Gradle tasks
-  # Build plugin and provide the artifact for the next workflow jobs
+  # Prepare environment and build the plugin
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -76,6 +74,38 @@ jobs:
 
           ./gradlew listProductsReleases # prepare list of IDEs for Plugin Verifier
 
+  # Upload built plugin as a workflow artifact
+  prepareArtifact:
+    name: Prepare artifact
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+
+      # Prepare plugin archive content for creating artifact
+      - name: Prepare Plugin Artifact
+        id: artifact
+        shell: bash
+        run: |
+          cd ${{ github.workspace }}/build/distributions
+          FILENAME=`ls *.zip`
+          unzip "$FILENAME" -d content
+
+          echo "filename=${FILENAME:0:-4}" >> $GITHUB_OUTPUT
+
+      # Store already-built plugin as an artifact for downloading
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ steps.artifact.outputs.filename }}
+          path: ./build/distributions/content/*/*
+
+  # Run tests and upload a code coverage report
+  test:
+    name: Test
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+
       # Run tests
       - name: Run Tests
         run: ./gradlew check
@@ -93,6 +123,13 @@ jobs:
         uses: codecov/codecov-action@v3
         with:
           files: ${{ github.workspace }}/build/reports/kover/xml/report.xml
+
+  # Run plugin structure verification along with IntelliJ Plugin Verifier
+  verify:
+    name: Verify
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
 
       # Cache Plugin Verifier IDEs
       - name: Setup Plugin Verifier IDEs Cache
@@ -113,34 +150,23 @@ jobs:
           name: pluginVerifier-result
           path: ${{ github.workspace }}/build/reports/pluginVerifier
 
+  # Run Qodana inspections and provide report
+  inspectCode:
+    name: Inspect code
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+
       # Run Qodana inspections
       - name: Qodana - Code Inspection
         uses: JetBrains/qodana-action@v2023.1.4
-
-      # Prepare plugin archive content for creating artifact
-      - name: Prepare Plugin Artifact
-        id: artifact
-        shell: bash
-        run: |
-          cd ${{ github.workspace }}/build/distributions
-          FILENAME=`ls *.zip`
-          unzip "$FILENAME" -d content
-
-          echo "filename=${FILENAME:0:-4}" >> $GITHUB_OUTPUT
-
-      # Store already-built plugin as an artifact for downloading
-      - name: Upload artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: ${{ steps.artifact.outputs.filename }}
-          path: ./build/distributions/content/*/*
 
   # Prepare a draft release for GitHub Releases page for the manual verification
   # If accepted and published, release workflow would be triggered
   releaseDraft:
     name: Release Draft
     if: github.event_name != 'pull_request'
-    needs: build
+    needs: [build, test, verify, inspectCode]
     runs-on: ubuntu-latest
     permissions:
       contents: write
