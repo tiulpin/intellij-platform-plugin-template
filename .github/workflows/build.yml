@@ -128,7 +128,7 @@ jobs:
 
   # Run plugin structure verification along with IntelliJ Plugin Verifier
   verify:
-    name: Verify
+    name: Verify plugin
     needs: [build, test]
     runs-on: ubuntu-latest
     steps:
@@ -145,12 +145,12 @@ jobs:
       - name: Setup Plugin Verifier IDEs Cache
         uses: actions/cache@v3
         with:
-          path: ${{ needs.build.outputs.changelog }}/ides
+          path: ${{ needs.build.outputs.pluginVerifierHomeDir }}/ides
           key: plugin-verifier-${{ hashFiles('build/listProductsReleases.txt') }}
 
       # Run Verify Plugin task and IntelliJ Plugin Verifier tool
       - name: Run Plugin Verification tasks
-        run: ./gradlew runPluginVerifier -Dplugin.verifier.home.dir=${{ needs.build.outputs.changelog }}
+        run: ./gradlew runPluginVerifier -Dplugin.verifier.home.dir=${{ needs.build.outputs.pluginVerifierHomeDir }}
 
       # Collect Plugin Verifier Result
       - name: Collect Plugin Verifier Result
@@ -178,7 +178,7 @@ jobs:
   # Prepare a draft release for GitHub Releases page for the manual verification
   # If accepted and published, release workflow would be triggered
   releaseDraft:
-    name: Release Draft
+    name: Release draft
     if: github.event_name != 'pull_request'
     needs: [ build, test, verify, inspectCode ]
     runs-on: ubuntu-latest
