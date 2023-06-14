@@ -40,4 +40,3 @@ jobs:
         uses: JetBrains/qodana-action@v2023.1.4
         with:
           cache-default-branch-only: "true"
-          upload-result: "true"
